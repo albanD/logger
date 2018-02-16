@@ -1,5 +1,6 @@
 import numpy as np
 import pprint
+import threading, Queue
 
 from collections import defaultdict
 
@@ -30,6 +31,15 @@ class Cache(object):
     def y(self):
         return np.array(self._y)
 
+thread_status_marker = "marker"
+def updateTraceWorker(viz, rcv_queue, send_queue):
+    while True:
+        opts = rcv_queue.get()
+        if opts == thread_status_marker:
+            send_queue.put(thread_status_marker)
+        viz.updateTrace(**opts)
+    print("bye")
+
 
 class Plotter(object):
 
@@ -41,8 +51,15 @@ class Plotter(object):
 
         assert visdom is not None, "visdom could not be imported"
 
+        visdom_opts_keys = list(visdom_opts.keys())
+        # Remove the unsafe_send opt if it is in visdom_opts
+        self.unsafe_send = False
+        if 'unsafe_send' in visdom_opts_keys:
+            self.unsafe_send = bool(visdom_opts['unsafe_send'])
+            del visdom_opts['unsafe_send']
+
         # visdom env is given by Experiment name unless specified
-        if 'env' not in list(visdom_opts.keys()):
+        if 'env' not in visdom_opts_keys:
             visdom_opts['env'] = xp.name
 
         self.viz = visdom.Visdom(**visdom_opts)
@@ -52,9 +69,25 @@ class Plotter(object):
         self.append = {}
         self.cache = defaultdict(Cache)
 
+        if self.unsafe_send:
+            self.worker_queue = Queue.Queue()
+            self.answer_queue = Queue.Queue()
+            self.worker_thread = threading.Thread(target=updateTraceWorker,
+                args=(self.viz, self.worker_queue, self.answer_queue))
+            self.worker_thread.daemon = True
+            self.worker_thread.start()
+
+    def wait_sending(self):
+        if self.unsafe_send:
+            # Wait for the worker to process everything in the queue
+            self.worker_queue.put(thread_status_marker)
+            res = self.answer_queue.get()
+            assert(res == thread_status_marker)
+
     def set_win_opts(self, name, opts):
         self.windows_opts[name] = opts
 
+    @profile
     def _plot_xy(self, name, tag, x, y, time_idx=True):
         """
         Creates a window if it does not exist yet.
@@ -78,9 +111,15 @@ class Plotter(object):
             self.windows[name] = self.viz.line(Y=y, X=x, opts=opts)
             return True
         else:
-            return bool(self.viz.updateTrace(Y=y, X=x, name=tag,
-                                             win=self.windows[name],
-                                             append=True))
+            if self.unsafe_send:
+                args = {"Y": y, "X": x, "name": tag, "win": self.windows[name], "append": True}
+                self.worker_queue.put(args)
+                # Assume that the sending went right
+                return True
+            else:
+                return bool(self.viz.updateTrace(Y=y, X=x, name=tag,
+                                                 win=self.windows[name],
+                                                 append=True))
 
     def plot_xp(self, xp):
 
