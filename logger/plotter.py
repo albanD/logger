@@ -37,6 +37,7 @@ def updateTraceWorker(viz, rcv_queue, send_queue):
         opts = rcv_queue.get()
         if opts == thread_status_marker:
             send_queue.put(thread_status_marker)
+            continue
         viz.updateTrace(**opts)
     print("bye")
 
@@ -68,6 +69,7 @@ class Plotter(object):
         self.windows_opts = defaultdict(dict)
         self.append = {}
         self.cache = defaultdict(Cache)
+        self.append = True
 
         if self.unsafe_send:
             self.worker_queue = Queue.Queue()
@@ -87,7 +89,6 @@ class Plotter(object):
     def set_win_opts(self, name, opts):
         self.windows_opts[name] = opts
 
-    @profile
     def _plot_xy(self, name, tag, x, y, time_idx=True):
         """
         Creates a window if it does not exist yet.
@@ -112,14 +113,14 @@ class Plotter(object):
             return True
         else:
             if self.unsafe_send:
-                args = {"Y": y, "X": x, "name": tag, "win": self.windows[name], "append": True}
+                args = {"Y": y, "X": x, "name": tag, "win": self.windows[name], "append": self.append}
                 self.worker_queue.put(args)
                 # Assume that the sending went right
                 return True
             else:
                 return bool(self.viz.updateTrace(Y=y, X=x, name=tag,
                                                  win=self.windows[name],
-                                                 append=True))
+                                                 append=self.append))
 
     def plot_xp(self, xp):
 
