@@ -1,6 +1,13 @@
 import numpy as np
 import pprint
-import threading, Queue
+import sys
+import threading
+
+# queue for python 2 / 3
+if sys.version_info[0] == 2:
+    from Queue import Queue
+else:
+    from queue import Queue
 
 from collections import defaultdict
 
@@ -38,7 +45,7 @@ def updateTraceWorker(viz, rcv_queue, send_queue):
         if opts == thread_status_marker:
             send_queue.put(thread_status_marker)
             continue
-        viz.updateTrace(**opts)
+        viz.line(**opts)
     print("bye")
 
 
@@ -72,8 +79,8 @@ class Plotter(object):
         self.append = True
 
         if self.unsafe_send:
-            self.worker_queue = Queue.Queue()
-            self.answer_queue = Queue.Queue()
+            self.worker_queue = Queue()
+            self.answer_queue = Queue()
             self.worker_thread = threading.Thread(target=updateTraceWorker,
                 args=(self.viz, self.worker_queue, self.answer_queue))
             self.worker_thread.daemon = True
@@ -113,14 +120,14 @@ class Plotter(object):
             return True
         else:
             if self.unsafe_send:
-                args = {"Y": y, "X": x, "name": tag, "win": self.windows[name], "append": self.append}
+                args = {"Y": y, "X": x, "name": tag, "win": self.windows[name], "update": "append"}
                 self.worker_queue.put(args)
                 # Assume that the sending went right
                 return True
             else:
-                return bool(self.viz.updateTrace(Y=y, X=x, name=tag,
-                                                 win=self.windows[name],
-                                                 append=self.append))
+                return bool(self.viz.line(Y=y, X=x, name=tag,
+                                          win=self.windows[name],
+                                          update="append"))
 
     def plot_xp(self, xp):
 
